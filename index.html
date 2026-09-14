@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>理科 振り返りノート</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@500;700&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#F5F6F1;
+    --paper-line:#DAD9CC;
+    --ink:#232B27;
+    --ink-soft:#5B6660;
+    --teal:#2E6B70;
+    --teal-deep:#1F4E52;
+    --amber:#B8792F;
+    --sage:#4F7A5E;
+    --sage-bg:#EBF1EC;
+    --amber-bg:#F7EEE0;
+    --danger:#A64B44;
+    --radius:10px;
+    --maxw:660px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--paper);
+    background-image: linear-gradient(var(--paper-line) 1px, transparent 1px);
+    background-size: 100% 34px;
+    color:var(--ink);
+    font-family:'Zen Kaku Gothic New', sans-serif;
+    line-height:1.7;
+    -webkit-font-smoothing:antialiased;
+    min-height:100vh;
+  }
+  h1,h2,h3{
+    font-family:'Shippori Mincho', serif;
+    font-weight:700;
+    margin:0 0 .3em;
+    letter-spacing:.02em;
+  }
+  .wrap{
+    max-width:var(--maxw);
+    margin:0 auto;
+    padding:28px 20px 80px;
+  }
+  .topline{
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+    border-bottom:2px solid var(--ink);
+    padding-bottom:10px;
+    margin-bottom:22px;
+  }
+  .topline h1{font-size:1.35rem;color:var(--teal-deep);}
+  .topline .who{font-size:.85rem;color:var(--ink-soft);}
+
+  /* ---- form ---- */
+  .card{
+    background:#fff;
+    border:1px solid var(--paper-line);
+    border-radius:var(--radius);
+    padding:20px;
+    margin-bottom:26px;
+    box-shadow:0 1px 0 rgba(0,0,0,.03);
+  }
+  label{display:block;font-size:.82rem;color:var(--ink-soft);margin-bottom:6px;}
+  input[type=text], textarea, select{
+    width:100%;
+    font-family:inherit;
+    font-size:1rem;
+    padding:10px 12px;
+    border:1px solid var(--paper-line);
+    border-radius:8px;
+    background:#FCFCFA;
+    color:var(--ink);
+    resize:vertical;
+  }
+  input[type=text]:focus, textarea:focus, select:focus{
+    outline:2px solid var(--teal);
+    outline-offset:1px;
+    border-color:var(--teal);
+  }
+  .field{margin-bottom:14px;}
+  textarea{min-height:120px;}
+  .charcount{font-size:.75rem;color:var(--ink-soft);text-align:right;margin-top:4px;}
+  button{
+    font-family:inherit;
+    font-size:.95rem;
+    font-weight:700;
+    border:none;
+    border-radius:8px;
+    padding:11px 20px;
+    cursor:pointer;
+    transition:transform .08s ease, background .15s ease;
+  }
+  button:active{transform:scale(.98);}
+  .btn-main{background:var(--teal-deep);color:#fff;}
+  .btn-main:hover{background:var(--teal);}
+  .btn-main:disabled{background:#B9C4C1;cursor:not-allowed;}
+  .btn-ghost{background:transparent;color:var(--teal-deep);border:1px solid var(--teal-deep);}
+  .btn-danger{background:var(--danger);color:#fff;}
+  .msg{font-size:.85rem;margin-top:10px;}
+  .msg.err{color:var(--danger);}
+  .msg.ok{color:var(--sage);}
+
+  /* ---- timeline ---- */
+  .timeline{position:relative;padding-left:22px;}
+  .timeline::before{
+    content:'';
+    position:absolute;left:6px;top:6px;bottom:6px;
+    width:2px;background:var(--paper-line);
+  }
+  .entry{position:relative;margin-bottom:22px;}
+  .entry::before{
+    content:'';
+    position:absolute;left:-22px;top:6px;
+    width:11px;height:11px;border-radius:50%;
+    background:var(--teal);border:2px solid #fff;
+    box-shadow:0 0 0 1px var(--paper-line);
+  }
+  .entry.pending::before{background:var(--amber);}
+  .entry-date{font-size:.78rem;color:var(--ink-soft);margin-bottom:4px;}
+  .entry-lesson{font-family:'Shippori Mincho',serif;font-size:1.02rem;font-weight:700;margin-bottom:6px;color:var(--ink);}
+  .entry-text{white-space:pre-wrap;font-size:.95rem;margin-bottom:10px;}
+  .grade-box{
+    border-radius:8px;
+    padding:12px 14px;
+    font-size:.9rem;
+  }
+  .grade-box.graded{background:var(--sage-bg);border:1px solid #cfe0d3;}
+  .grade-box.pending{background:var(--amber-bg);border:1px solid #ecdcbf;color:var(--amber);}
+  .score{font-family:'Shippori Mincho',serif;font-weight:700;color:var(--sage);font-size:1rem;margin-bottom:4px;}
+  .empty{color:var(--ink-soft);font-size:.9rem;padding:20px 0;}
+
+  /* ---- admin ---- */
+  .admin-item{
+    background:#fff;border:1px solid var(--paper-line);border-radius:var(--radius);
+    padding:16px;margin-bottom:14px;
+  }
+  .admin-item .meta{display:flex;justify-content:space-between;font-size:.78rem;color:var(--ink-soft);margin-bottom:6px;}
+  .admin-item .badge{
+    display:inline-block;font-size:.72rem;padding:2px 8px;border-radius:20px;
+    background:var(--sage-bg);color:var(--sage);margin-left:8px;
+  }
+  .admin-item .badge.err{background:#f6e2e0;color:var(--danger);}
+  .row2{display:flex;gap:10px;flex-wrap:wrap;}
+  .row2 > *{flex:1;min-width:140px;}
+  footer.note{font-size:.78rem;color:var(--ink-soft);margin-top:30px;border-top:1px solid var(--paper-line);padding-top:14px;}
+  .link-btn{background:none;border:none;color:var(--teal-deep);text-decoration:underline;cursor:pointer;font-size:.85rem;padding:0;}
+  .spinner{display:inline-block;width:14px;height:14px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;animation:spin .7s linear infinite;vertical-align:-2px;margin-right:6px;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+</style>
+</head>
+<body>
+<div id="app" class="wrap"><p class="empty">読み込み中…</p></div>
+
+<script>
+/* ===== 設定: Google Apps Script の /exec URL をここに貼り付ける ===== */
+const GAS_URL = 'ここにGASのウェブアプリURLを貼り付け';
+
+/* ===== ルーティング ===== */
+const params = new URLSearchParams(location.search);
+const studentToken = params.get('s');
+const isAdmin = params.get('admin') === '1';
+const app = document.getElementById('app');
+
+if (studentToken) {
+  renderStudent(studentToken);
+} else if (isAdmin) {
+  renderAdminGate();
+} else {
+  renderLanding();
+}
+
+function renderLanding(){
+  app.innerHTML = `
+    <div class="topline"><h1>理科 振り返りノート</h1></div>
+    <div class="card">
+      <p>このページは、先生から配布された個人リンクを開いて使います。</p>
+      <p style="color:var(--ink-soft);font-size:.85rem;">生徒の方は先生から届いたURLをブックマークしてください。</p>
+    </div>
+    <footer class="note"><button class="link-btn" onclick="location.search='?admin=1'">先生用ページ</button></footer>
+  `;
+}
+
+/* ---------------- 共通: GASへのリクエスト ---------------- */
+function gasGet(qs){
+  return fetch(GAS_URL + '?' + qs).then(r=>r.json());
+}
+function gasPost(body){
+  return fetch(GAS_URL, {
+    method:'POST',
+    headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body: JSON.stringify(body)
+  }).then(r=>r.json());
+}
+function fmtDate(d){
+  const dt = new Date(d);
+  if (isNaN(dt)) return d || '';
+  return dt.toLocaleDateString('ja-JP',{month:'numeric',day:'numeric',weekday:'short'}) + ' ' +
+         dt.toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'});
+}
+function esc(s){
+  return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+/* ---------------- 生徒ページ ---------------- */
+function renderStudent(token){
+  app.innerHTML = `<p class="empty">読み込み中…</p>`;
+  gasGet('action=student&token=' + encodeURIComponent(token)).then(data=>{
+    if (data.error){
+      app.innerHTML = `<div class="card"><p class="msg err">${esc(data.error)}</p></div>`;
+      return;
+    }
+    app.innerHTML = `
+      <div class="topline">
+        <h1>理科 振り返りノート</h1>
+        <span class="who">${esc(data.name)} さん</span>
+      </div>
+
+      <div class="card">
+        <h2 style="font-size:1rem;">今日の振り返りを書く</h2>
+        <div class="field">
+          <label for="lesson">今日の単元・テーマ</label>
+          <input type="text" id="lesson" placeholder="例: 中和反応の実験">
+        </div>
+        <div class="field">
+          <label for="text">振り返り</label>
+          <textarea id="text" maxlength="1000" placeholder="今日の授業でわかったこと、疑問に思ったこと、次にやってみたいことなどを書こう"></textarea>
+          <div class="charcount"><span id="cc">0</span>/1000</div>
+        </div>
+        <button class="btn-main" id="submitBtn">提出する</button>
+        <div class="msg" id="submitMsg"></div>
+      </div>
+
+      <h2 style="font-size:1rem;color:var(--ink-soft);">これまでの記録</h2>
+      <div class="timeline" id="timeline"></div>
+    `;
+
+    const textEl = document.getElementById('text');
+    textEl.addEventListener('input', ()=>{document.getElementById('cc').textContent = textEl.value.length;});
+
+    document.getElementById('submitBtn').addEventListener('click', ()=>{
+      const lesson = document.getElementById('lesson').value.trim();
+      const text = textEl.value.trim();
+      const btn = document.getElementById('submitBtn');
+      const msg = document.getElementById('submitMsg');
+      if (!text){ msg.className='msg err'; msg.textContent='振り返りを入力してください。'; return; }
+      btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>送信中…';
+      gasPost({action:'submit', token:token, lesson:lesson, text:text}).then(res=>{
+        btn.disabled = false; btn.textContent = '提出する';
+        if (res.error){ msg.className='msg err'; msg.textContent = res.error; return; }
+        msg.className='msg ok'; msg.textContent = '提出しました。AIの評価がつくまで少し待ってね。';
+        document.getElementById('lesson').value=''; textEl.value=''; document.getElementById('cc').textContent='0';
+        renderTimeline(data.entries = [{row:null,date:new Date().toISOString(),lesson:lesson,text:text,score:'',comment:''}].concat(data.entries));
+      });
+    });
+
+    renderTimeline(data.entries);
+  }).catch(()=>{
+    app.innerHTML = `<div class="card"><p class="msg err">通信に失敗しました。ネットワーク接続を確認してください。</p></div>`;
+  });
+}
+
+function renderTimeline(entries){
+  const el = document.getElementById('timeline');
+  if (!entries.length){
+    el.innerHTML = '<p class="empty">まだ記録がありません。</p>';
+    return;
+  }
+  el.innerHTML = entries.map(en=>{
+    const graded = en.score !== '' && en.score !== undefined && en.score !== null;
+    return `
+      <div class="entry ${graded?'':'pending'}">
+        <div class="entry-date">${fmtDate(en.date)}</div>
+        ${en.lesson ? `<div class="entry-lesson">${esc(en.lesson)}</div>` : ''}
+        <div class="entry-text">${esc(en.text)}</div>
+        ${graded
+          ? `<div class="grade-box graded"><div class="score">評価: ${esc(en.score)}</div>${esc(en.comment)}</div>`
+          : `<div class="grade-box pending">AI評価待ち</div>`}
+      </div>`;
+  }).join('');
+}
+
+/* ---------------- 先生ページ ---------------- */
+function renderAdminGate(){
+  const savedKey = localStorage.getItem('reflect_admin_pw') || '';
+  const savedApiKey = localStorage.getItem('reflect_anthropic_key') || '';
+  app.innerHTML = `
+    <div class="topline"><h1>理科 振り返りノート — 先生用</h1></div>
+    <div class="card">
+      <div class="field">
+        <label for="pw">管理者の合言葉</label>
+        <input type="text" id="pw" value="${esc(savedKey)}">
+      </div>
+      <div class="field">
+        <label for="apikey">Anthropic APIキー(この端末にのみ保存されます)</label>
+        <input type="text" id="apikey" value="${esc(savedApiKey)}" placeholder="sk-ant-...">
+      </div>
+      <button class="btn-main" id="goBtn">未評価の振り返りを取得</button>
+      <div class="msg err" id="gateMsg"></div>
+    </div>
+  `;
+  document.getElementById('goBtn').addEventListener('click', ()=>{
+    const pw = document.getElementById('pw').value.trim();
+    const apikey = document.getElementById('apikey').value.trim();
+    if (!pw || !apikey){
+      document.getElementById('gateMsg').textContent = '合言葉とAPIキーの両方を入力してください。';
+      return;
+    }
+    localStorage.setItem('reflect_admin_pw', pw);
+    localStorage.setItem('reflect_anthropic_key', apikey);
+    loadUngraded(pw, apikey);
+  });
+}
+
+function loadUngraded(pw, apikey){
+  app.innerHTML = `<p class="empty">読み込み中…</p>`;
+  gasGet('action=admin_ungraded&key=' + encodeURIComponent(pw)).then(data=>{
+    if (data.error){
+      app.innerHTML = `<div class="card"><p class="msg err">合言葉が違うか、通信に失敗しました。</p></div>
+        <button class="btn-ghost" onclick="renderAdminGate()">戻る</button>`;
+      return;
+    }
+    const items = data.items || [];
+    app.innerHTML = `
+      <div class="topline"><h1>未評価の振り返り</h1><span class="who">${items.length}件</span></div>
+      ${items.length ? `<div class="card row2">
+          <button class="btn-main" id="gradeAllBtn">すべてAIで評価する</button>
+          <button class="btn-ghost" onclick="renderAdminGate()">やり直す</button>
+        </div>` : `<div class="card"><p>未評価の振り返りはありません。</p>
+        <button class="btn-ghost" onclick="renderAdminGate()">戻る</button></div>`}
+      <div id="items"></div>
+    `;
+    const itemsEl = document.getElementById('items');
+    itemsEl.innerHTML = items.map(it => `
+      <div class="admin-item" id="item-${it.row}">
+        <div class="meta"><span>${esc(it.name)} / ${fmtDate(it.date)}</span><span id="status-${it.row}">未評価</span></div>
+        <div style="font-family:'Shippori Mincho',serif;font-weight:700;margin-bottom:4px;">${esc(it.lesson)}</div>
+        <div style="font-size:.9rem;">${esc(it.text)}</div>
+      </div>
+    `).join('');
+
+    if (items.length){
+      document.getElementById('gradeAllBtn').addEventListener('click', ()=>gradeAll(items, pw, apikey));
+    }
+  }).catch(()=>{
+    app.innerHTML = `<div class="card"><p class="msg err">通信に失敗しました。</p></div>`;
+  });
+}
+
+async function gradeAll(items, pw, apikey){
+  const btn = document.getElementById('gradeAllBtn');
+  btn.disabled = true;
+  const results = [];
+  for (const it of items){
+    const statusEl = document.getElementById('status-'+it.row);
+    statusEl.textContent = '評価中…';
+    try {
+      const grade = await gradeWithClaude(it, apikey);
+      statusEl.innerHTML = `<span class="badge">評価済 ${esc(grade.score)}</span>`;
+      results.push({row: it.row, score: grade.score, comment: grade.comment});
+    } catch (err){
+      statusEl.innerHTML = `<span class="badge err">失敗</span>`;
+    }
+  }
+  if (results.length){
+    await gasPost({action:'grade', key:pw, results:results});
+  }
+  btn.textContent = '完了しました';
+}
+
+async function gradeWithClaude(item, apikey){
+  const prompt = `あなたは中学校理科の先生です。生徒が書いた授業の振り返りを読み、次の2点を出力してください。
+1. 5点満点の評価点(整数。理解の深さ・具体性・自分の言葉での説明を基準にする)
+2. 生徒への短いコメント(2〜3文、日本語、励ましを含めた具体的なフィードバック)
+
+単元: ${item.lesson || '(未記入)'}
+生徒の振り返り:
+"""
+${item.text}
+"""
+
+出力は必ず次のJSON形式のみで返してください。他の文章は含めないこと。
+{"score": 数値, "comment": "コメント本文"}`;
+
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apikey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 300,
+      messages: [{ role: 'user', content: prompt }]
+    })
+  });
+  if (!res.ok) throw new Error('API error ' + res.status);
+  const data = await res.json();
+  const textBlock = (data.content || []).find(b => b.type === 'text');
+  if (!textBlock) throw new Error('no text');
+  const match = textBlock.text.match(/\{[\s\S]*\}/);
+  if (!match) throw new Error('parse error');
+  const parsed = JSON.parse(match[0]);
+  return { score: parsed.score, comment: parsed.comment };
+}
+</script>
+</body>
+</html>
