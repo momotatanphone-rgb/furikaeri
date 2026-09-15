@@ -7,6 +7,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@500;700&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <style>
   :root{
     --paper:#F5F6F1;
@@ -134,7 +136,6 @@
   }
   .entry.pending::before{background:var(--amber);}
   .entry-date{font-size:.78rem;color:var(--ink-soft);margin-bottom:4px;}
-  .entry-lesson{font-family:'Shippori Mincho',serif;font-size:1.02rem;font-weight:700;margin-bottom:6px;color:var(--ink);}
   .entry-text{white-space:pre-wrap;font-size:.95rem;margin-bottom:10px;}
   .grade-box{
     border-radius:8px;
@@ -183,8 +184,17 @@
 <div id="app" class="wrap"><p class="empty">読み込み中…</p></div>
 
 <script>
-/* ===== 設定: Google Apps Script の /exec URL をここに貼り付ける ===== */
-const GAS_URL = https://script.google.com/macros/s/AKfycbwVDdaxn-I9KJLeSyrRM1QcF_OdxL50xTgAsg-rICqDDuv1-t9oGU-BINIqm2HEdk3X/exec;
+/* ===== 設定: Firebaseコンソールで取得した設定値をここに貼り付ける ===== */
+const firebaseConfig = {
+  apiKey: "AIzaSyCWlgK3s4d2JyJEqWGGsdjRsIewRCqZsGM",
+  authDomain: "furikaeri-e4d8e.firebaseapp.com",
+  projectId: "furikaeri-e4d8e",
+  storageBucket: "furikaeri-e4d8e.firebasestorage.app",
+  messagingSenderId: "761792915713",
+  appId: "1:761792915713:web:3ea425d52d5db456311300"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
 
 /* ===== ルーティング ===== */
 const params = new URLSearchParams(location.search);
@@ -211,20 +221,10 @@ function renderLanding(){
   `;
 }
 
-/* ---------------- 共通: GASへのリクエスト ---------------- */
-function gasGet(qs){
-  return fetch(GAS_URL + '?' + qs).then(r=>r.json());
-}
-function gasPost(body){
-  return fetch(GAS_URL, {
-    method:'POST',
-    headers:{'Content-Type':'text/plain;charset=utf-8'},
-    body: JSON.stringify(body)
-  }).then(r=>r.json());
-}
+/* ---------------- 共通ヘルパー ---------------- */
 function fmtDate(d){
-  const dt = new Date(d);
-  if (isNaN(dt)) return d || '';
+  const dt = (d && typeof d.toDate === 'function') ? d.toDate() : new Date(d);
+  if (isNaN(dt)) return '';
   return dt.toLocaleDateString('ja-JP',{month:'numeric',day:'numeric',weekday:'short'}) + ' ' +
          dt.toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'});
 }
@@ -234,24 +234,32 @@ function esc(s){
 function lessonFullName(l){
   return [l.tani, l.sho, l.koji].filter(Boolean).join(' ');
 }
+async function getLessons(){
+  const doc = await db.collection('lessons').doc('config').get();
+  return doc.exists ? (doc.data().tree || []) : [];
+}
 
 /* ---------------- 生徒ページ ---------------- */
 let currentSel = { tani:null, sho:null, koji:null };
 let allEntries = [];
 let lessonList = [];
+let studentName = '';
 
 function renderStudent(token){
   app.innerHTML = `<p class="empty">読み込み中…</p>`;
   Promise.all([
-    gasGet('action=student&token=' + encodeURIComponent(token)),
-    gasGet('action=lessons')
-  ]).then(([data, lessonData])=>{
-    if (data.error){
-      app.innerHTML = `<div class="card"><p class="msg err">${esc(data.error)}</p></div>`;
+    db.collection('students').doc(token).get(),
+    db.collection('reflections').where('studentId','==',token).get(),
+    getLessons()
+  ]).then(([studentSnap, reflSnap, lessons])=>{
+    if (!studentSnap.exists){
+      app.innerHTML = `<div class="card"><p class="msg err">無効なリンクです。先生に確認してください。</p></div>`;
       return;
     }
-    allEntries = data.entries;
-    lessonList = (lessonData && lessonData.lessons) || [];
+    studentName = studentSnap.data().name;
+    allEntries = reflSnap.docs.map(d => ({ id:d.id, ...d.data() }))
+      .sort((a,b) => (b.ts && b.ts.toDate ? b.ts.toDate() : new Date(b.ts)) - (a.ts && a.ts.toDate ? a.ts.toDate() : new Date(a.ts)));
+    lessonList = lessons;
 
     if (lessonList.length){
       const last = lessonList[lessonList.length - 1];
@@ -263,7 +271,7 @@ function renderStudent(token){
     app.innerHTML = `
       <div class="topline">
         <h1>理科 振り返りノート</h1>
-        <span class="who">${esc(data.name)} さん</span>
+        <span class="who">${esc(studentName)} さん</span>
       </div>
 
       <div id="lessonNav"></div>
@@ -289,7 +297,7 @@ function renderStudent(token){
     const textEl = document.getElementById('text');
     textEl.addEventListener('input', ()=>{document.getElementById('cc').textContent = textEl.value.length;});
 
-    document.getElementById('submitBtn').addEventListener('click', ()=>{
+    document.getElementById('submitBtn').addEventListener('click', async ()=>{
       const text = textEl.value.trim();
       const btn = document.getElementById('submitBtn');
       const msg = document.getElementById('submitMsg');
@@ -297,14 +305,25 @@ function renderStudent(token){
       if (!text){ msg.className='msg err'; msg.textContent='振り返りを入力してください。'; return; }
       const lessonName = lessonFullName(currentSel);
       btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>送信中…';
-      gasPost({action:'submit', token:token, lesson:lessonName, text:text}).then(res=>{
+      try {
+        await db.collection('reflections').add({
+          studentId: token,
+          studentName: studentName,
+          ts: firebase.firestore.FieldValue.serverTimestamp(),
+          lesson: lessonName,
+          text: text,
+          score: '',
+          comment: ''
+        });
         btn.disabled = false; btn.textContent = '提出する';
-        if (res.error){ msg.className='msg err'; msg.textContent = res.error; return; }
         msg.className='msg ok'; msg.textContent = '提出しました。AIの評価がつくまで少し待ってね。';
         textEl.value=''; document.getElementById('cc').textContent='0';
-        allEntries = [{row:null,date:new Date().toISOString(),lesson:lessonName,text:text,score:'',comment:''}].concat(allEntries);
+        allEntries = [{id:null, ts:new Date(), lesson:lessonName, text:text, score:'', comment:''}].concat(allEntries);
         updateStudentView();
-      });
+      } catch (err){
+        btn.disabled = false; btn.textContent = '提出する';
+        msg.className='msg err'; msg.textContent = '送信に失敗しました。ネットワーク接続を確認してください。';
+      }
     });
   }).catch(()=>{
     app.innerHTML = `<div class="card"><p class="msg err">通信に失敗しました。ネットワーク接続を確認してください。</p></div>`;
@@ -380,7 +399,7 @@ function renderTimeline(entries){
     const graded = en.score !== '' && en.score !== undefined && en.score !== null;
     return `
       <div class="entry ${graded?'':'pending'}">
-        <div class="entry-date">${fmtDate(en.date)}</div>
+        <div class="entry-date">${fmtDate(en.ts)}</div>
         <div class="entry-text">${esc(en.text)}</div>
         ${graded
           ? `<div class="grade-box graded"><div class="score">評価: ${esc(en.score)}</div>${esc(en.comment)}</div>`
@@ -390,6 +409,16 @@ function renderTimeline(entries){
 }
 
 /* ---------------- 先生ページ ---------------- */
+async function checkOrSetAdminPassword(pw){
+  const ref = db.collection('admin').doc('config');
+  const snap = await ref.get();
+  if (!snap.exists){
+    await ref.set({ password: pw });
+    return true;
+  }
+  return snap.data().password === pw;
+}
+
 function renderAdminGate(){
   const savedKey = localStorage.getItem('reflect_admin_pw') || '';
   const savedApiKey = localStorage.getItem('reflect_anthropic_key') || '';
@@ -413,18 +442,29 @@ function renderAdminGate(){
       <div class="msg err" id="gateMsg"></div>
     </div>
   `;
-  document.getElementById('goBtn').addEventListener('click', ()=>{
+  document.getElementById('goBtn').addEventListener('click', async ()=>{
     const pw = document.getElementById('pw').value.trim();
     const apikey = document.getElementById('apikey').value.trim();
     const rubric = document.getElementById('rubric').value.trim();
+    const msg = document.getElementById('gateMsg');
     if (!pw || !apikey){
-      document.getElementById('gateMsg').textContent = '合言葉とAPIキーの両方を入力してください。';
+      msg.textContent = '合言葉とAPIキーの両方を入力してください。';
       return;
     }
-    localStorage.setItem('reflect_admin_pw', pw);
-    localStorage.setItem('reflect_anthropic_key', apikey);
-    localStorage.setItem('reflect_rubric', rubric);
-    renderAdminHub(pw, apikey, rubric);
+    const btn = document.getElementById('goBtn');
+    btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>確認中…';
+    try {
+      const ok = await checkOrSetAdminPassword(pw);
+      btn.disabled = false; btn.textContent = '入る';
+      if (!ok){ msg.textContent = '合言葉が違います。'; return; }
+      localStorage.setItem('reflect_admin_pw', pw);
+      localStorage.setItem('reflect_anthropic_key', apikey);
+      localStorage.setItem('reflect_rubric', rubric);
+      renderAdminHub(pw, apikey, rubric);
+    } catch (err){
+      btn.disabled = false; btn.textContent = '入る';
+      msg.textContent = '通信に失敗しました。ネットワーク接続を確認してください。';
+    }
   });
 }
 
@@ -439,20 +479,15 @@ function renderAdminHub(pw, apikey, rubric){
     <footer class="note"><button class="link-btn" onclick="renderAdminGate()">合言葉・APIキー・評価基準を変更</button></footer>
   `;
   document.getElementById('goUngraded').addEventListener('click', ()=>loadUngraded(pw, apikey, rubric));
-  document.getElementById('goList').addEventListener('click', ()=>renderGradedList(pw));
+  document.getElementById('goList').addEventListener('click', ()=>renderGradedList(pw, apikey, rubric));
   document.getElementById('goLessons').addEventListener('click', ()=>renderLessonSettings(pw, apikey, rubric));
 }
 
 function loadUngraded(pw, apikey, rubric){
   app.innerHTML = `<p class="empty">読み込み中…</p>`;
-  gasGet('action=admin_ungraded&key=' + encodeURIComponent(pw)).then(data=>{
-    if (data.error){
-      app.innerHTML = `<div class="card"><p class="msg err">合言葉が違うか、通信に失敗しました。</p></div>
-        <button class="btn-ghost" id="backBtn">戻る</button>`;
-      document.getElementById('backBtn').addEventListener('click', ()=>renderAdminHub(pw, apikey, rubric));
-      return;
-    }
-    const items = data.items || [];
+  db.collection('reflections').where('score','==','').get().then(snap=>{
+    const items = snap.docs.map(d => ({ id:d.id, ...d.data() }))
+      .sort((a,b) => (a.ts && a.ts.toDate ? a.ts.toDate() : new Date(a.ts)) - (b.ts && b.ts.toDate ? b.ts.toDate() : new Date(b.ts)));
     app.innerHTML = `
       <div class="topline"><h1>未評価の振り返り</h1><span class="who">${items.length}件</span></div>
       ${items.length ? `<div class="card row2">
@@ -465,38 +500,38 @@ function loadUngraded(pw, apikey, rubric){
     document.getElementById('backBtn').addEventListener('click', ()=>renderAdminHub(pw, apikey, rubric));
     const itemsEl = document.getElementById('items');
     itemsEl.innerHTML = items.map(it => `
-      <div class="admin-item" id="item-${it.row}">
-        <div class="meta"><span>${esc(it.name)} / ${fmtDate(it.date)}</span><span id="status-${it.row}">未評価</span></div>
+      <div class="admin-item" id="item-${it.id}">
+        <div class="meta"><span>${esc(it.studentName)} / ${fmtDate(it.ts)}</span><span id="status-${it.id}">未評価</span></div>
         <div style="font-family:'Shippori Mincho',serif;font-weight:700;margin-bottom:4px;">${esc(it.lesson)}</div>
         <div style="font-size:.9rem;">${esc(it.text)}</div>
       </div>
     `).join('');
 
     if (items.length){
-      document.getElementById('gradeAllBtn').addEventListener('click', ()=>gradeAll(items, pw, apikey, rubric));
+      document.getElementById('gradeAllBtn').addEventListener('click', ()=>gradeAll(items, apikey, rubric));
     }
   }).catch(()=>{
     app.innerHTML = `<div class="card"><p class="msg err">通信に失敗しました。</p></div>`;
   });
 }
 
-async function gradeAll(items, pw, apikey, rubric){
+async function gradeAll(items, apikey, rubric){
   const btn = document.getElementById('gradeAllBtn');
   btn.disabled = true;
-  const results = [];
   for (const it of items){
-    const statusEl = document.getElementById('status-'+it.row);
+    const statusEl = document.getElementById('status-'+it.id);
     statusEl.textContent = '評価中…';
     try {
       const grade = await gradeWithClaude(it, apikey, rubric);
+      await db.collection('reflections').doc(it.id).update({
+        score: grade.score,
+        comment: grade.comment,
+        gradedAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
       statusEl.innerHTML = `<span class="badge">評価済 ${esc(grade.score)}</span>`;
-      results.push({row: it.row, score: grade.score, comment: grade.comment});
     } catch (err){
       statusEl.innerHTML = `<span class="badge err">失敗</span>`;
     }
-  }
-  if (results.length){
-    await gasPost({action:'grade', key:pw, results:results});
   }
   btn.textContent = '完了しました';
 }
@@ -540,20 +575,14 @@ ${item.text}
   return { score: parsed.score, comment: parsed.comment };
 }
 
-function renderGradedList(pw){
+function renderGradedList(pw, apikey, rubric){
   app.innerHTML = `<p class="empty">読み込み中…</p>`;
   Promise.all([
-    gasGet('action=admin_all&key=' + encodeURIComponent(pw)),
-    gasGet('action=lessons')
-  ]).then(([data, lessonData])=>{
-    if (data.error){
-      app.innerHTML = `<div class="card"><p class="msg err">合言葉が違うか、通信に失敗しました。</p></div>
-        <button class="btn-ghost" id="backBtn">戻る</button>`;
-      document.getElementById('backBtn').addEventListener('click', ()=>renderAdminHub(pw, localStorage.getItem('reflect_anthropic_key')||'', localStorage.getItem('reflect_rubric')||''));
-      return;
-    }
-    const items = data.items || [];
-    const lessons = (lessonData && lessonData.lessons) || [];
+    db.collection('reflections').get(),
+    getLessons()
+  ]).then(([snap, lessons])=>{
+    const items = snap.docs.map(d => ({ id:d.id, ...d.data() }))
+      .sort((a,b) => (b.ts && b.ts.toDate ? b.ts.toDate() : new Date(b.ts)) - (a.ts && a.ts.toDate ? a.ts.toDate() : new Date(a.ts)));
     app.innerHTML = `
       <div class="topline"><h1>評価の一覧</h1><span class="who">${items.length}件</span></div>
       <div class="card">
@@ -567,7 +596,7 @@ function renderGradedList(pw){
       <div id="gradedItems"></div>
       <footer class="note"><button class="link-btn" id="backBtn">先生用トップに戻る</button></footer>
     `;
-    document.getElementById('backBtn').addEventListener('click', ()=>renderAdminHub(pw, localStorage.getItem('reflect_anthropic_key')||'', localStorage.getItem('reflect_rubric')||''));
+    document.getElementById('backBtn').addEventListener('click', ()=>renderAdminHub(pw, apikey, rubric));
 
     function draw(){
       const lesson = document.getElementById('lessonFilter').value;
@@ -584,7 +613,7 @@ function renderGradedList(pw){
         const isGraded = it.score !== '' && it.score !== undefined && it.score !== null;
         return `
           <div class="admin-item">
-            <div class="meta"><span>${esc(it.name)} / ${fmtDate(it.date)}</span>
+            <div class="meta"><span>${esc(it.studentName)} / ${fmtDate(it.ts)}</span>
               <span class="badge ${isGraded?'':'err'}">${isGraded ? '評価済 '+esc(it.score) : '未評価'}</span>
             </div>
             <div style="font-family:'Shippori Mincho',serif;font-weight:700;margin-bottom:4px;">${esc(it.lesson)}</div>
@@ -605,8 +634,8 @@ let editRows = [];
 
 function renderLessonSettings(pw, apikey, rubric){
   app.innerHTML = `<p class="empty">読み込み中…</p>`;
-  gasGet('action=lessons').then(data=>{
-    editRows = (data.lessons || []).map(l => ({tani:l.tani, sho:l.sho, koji:l.koji}));
+  getLessons().then(lessons=>{
+    editRows = lessons.map(l => ({tani:l.tani, sho:l.sho, koji:l.koji}));
     app.innerHTML = `
       <div class="topline"><h1>授業構成の設定</h1></div>
       <div class="card">
@@ -644,11 +673,15 @@ function renderLessonSettings(pw, apikey, rubric){
     document.getElementById('saveBtn').addEventListener('click', async ()=>{
       const btn = document.getElementById('saveBtn');
       btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>保存中…';
-      const res = await gasPost({action:'save_lessons', key:pw, tree:editRows});
-      btn.disabled = false; btn.textContent = '保存する';
       const msg = document.getElementById('settingsMsg');
-      if (res.error){ msg.className='msg err'; msg.textContent = '保存に失敗しました。合言葉を確認してください。'; return; }
-      msg.className='msg ok'; msg.textContent = '保存しました。生徒ページに反映されます。';
+      try {
+        await db.collection('lessons').doc('config').set({ tree: editRows });
+        btn.disabled = false; btn.textContent = '保存する';
+        msg.className='msg ok'; msg.textContent = '保存しました。生徒ページに反映されます。';
+      } catch (err){
+        btn.disabled = false; btn.textContent = '保存する';
+        msg.className='msg err'; msg.textContent = '保存に失敗しました。';
+      }
     });
   }).catch(()=>{
     app.innerHTML = `<div class="card"><p class="msg err">通信に失敗しました。</p></div>`;
