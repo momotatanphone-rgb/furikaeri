@@ -102,9 +102,20 @@
   .btn-main:disabled{background:#B9C4C1;cursor:not-allowed;}
   .btn-ghost{background:transparent;color:var(--teal-deep);border:1px solid var(--teal-deep);}
   .btn-danger{background:var(--danger);color:#fff;}
+  .btn-small{padding:5px 10px;font-size:.78rem;border-radius:6px;}
   .msg{font-size:.85rem;margin-top:10px;}
   .msg.err{color:var(--danger);}
   .msg.ok{color:var(--sage);}
+
+  /* ---- lesson tier tabs ---- */
+  .tier{margin-bottom:14px;}
+  .tier-label{font-size:.72rem;color:var(--ink-soft);margin-bottom:6px;letter-spacing:.05em;}
+  .lesson-tabs{display:flex;gap:8px;flex-wrap:wrap;}
+  .lesson-tab{
+    background:#fff;border:1px solid var(--paper-line);color:var(--ink-soft);
+    border-radius:20px;padding:7px 14px;font-size:.85rem;font-weight:500;
+  }
+  .lesson-tab.active{background:var(--teal-deep);border-color:var(--teal-deep);color:#fff;}
 
   /* ---- timeline ---- */
   .timeline{position:relative;padding-left:22px;}
@@ -152,6 +163,20 @@
   .link-btn{background:none;border:none;color:var(--teal-deep);text-decoration:underline;cursor:pointer;font-size:.85rem;padding:0;}
   .spinner{display:inline-block;width:14px;height:14px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;animation:spin .7s linear infinite;vertical-align:-2px;margin-right:6px;}
   @keyframes spin{to{transform:rotate(360deg);}}
+
+  /* ---- lesson settings page ---- */
+  .tani-group{margin-bottom:18px;}
+  .tani-title{font-family:'Shippori Mincho',serif;font-weight:700;font-size:1.02rem;margin-bottom:8px;}
+  .sho-group{margin-bottom:10px;padding-left:12px;border-left:2px solid var(--paper-line);}
+  .sho-title{font-size:.85rem;color:var(--ink-soft);margin-bottom:6px;}
+  .koji-chip{
+    display:inline-flex;align-items:center;gap:6px;
+    background:var(--sage-bg);border:1px solid #cfe0d3;color:var(--sage);
+    border-radius:16px;padding:4px 10px;font-size:.8rem;margin:0 6px 6px 0;
+  }
+  .koji-chip button{background:none;border:none;color:var(--danger);font-weight:700;padding:0;cursor:pointer;font-size:.85rem;line-height:1;}
+  .add-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;}
+  .add-row input{flex:1;min-width:100px;}
 </style>
 </head>
 <body>
@@ -159,7 +184,7 @@
 
 <script>
 /* ===== 設定: Google Apps Script の /exec URL をここに貼り付ける ===== */
-const GAS_URL = https://script.google.com/macros/s/AKfycbwVDdaxn-I9KJLeSyrRM1QcF_OdxL50xTgAsg-rICqDDuv1-t9oGU-BINIqm2HEdk3X/exec
+const GAS_URL = 'ここにGASのウェブアプリURLを貼り付け';
 
 /* ===== ルーティング ===== */
 const params = new URLSearchParams(location.search);
@@ -206,27 +231,45 @@ function fmtDate(d){
 function esc(s){
   return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
+function lessonFullName(l){
+  return [l.tani, l.sho, l.koji].filter(Boolean).join(' ');
+}
 
 /* ---------------- 生徒ページ ---------------- */
+let currentSel = { tani:null, sho:null, koji:null };
+let allEntries = [];
+let lessonList = [];
+
 function renderStudent(token){
   app.innerHTML = `<p class="empty">読み込み中…</p>`;
-  gasGet('action=student&token=' + encodeURIComponent(token)).then(data=>{
+  Promise.all([
+    gasGet('action=student&token=' + encodeURIComponent(token)),
+    gasGet('action=lessons')
+  ]).then(([data, lessonData])=>{
     if (data.error){
       app.innerHTML = `<div class="card"><p class="msg err">${esc(data.error)}</p></div>`;
       return;
     }
+    allEntries = data.entries;
+    lessonList = (lessonData && lessonData.lessons) || [];
+
+    if (lessonList.length){
+      const last = lessonList[lessonList.length - 1];
+      currentSel = { tani: last.tani, sho: last.sho, koji: last.koji };
+    } else {
+      currentSel = { tani:null, sho:null, koji:null };
+    }
+
     app.innerHTML = `
       <div class="topline">
         <h1>理科 振り返りノート</h1>
         <span class="who">${esc(data.name)} さん</span>
       </div>
 
+      <div id="lessonNav"></div>
+
       <div class="card">
-        <h2 style="font-size:1rem;">今日の振り返りを書く</h2>
-        <div class="field">
-          <label for="lesson">今日の単元・テーマ</label>
-          <input type="text" id="lesson" placeholder="例: 中和反応の実験">
-        </div>
+        <h2 style="font-size:1rem;" id="formTitle"></h2>
         <div class="field">
           <label for="text">振り返り</label>
           <textarea id="text" maxlength="1000" placeholder="今日の授業でわかったこと、疑問に思ったこと、次にやってみたいことなどを書こう"></textarea>
@@ -236,33 +279,95 @@ function renderStudent(token){
         <div class="msg" id="submitMsg"></div>
       </div>
 
-      <h2 style="font-size:1rem;color:var(--ink-soft);">これまでの記録</h2>
+      <h2 style="font-size:1rem;color:var(--ink-soft);" id="timelineTitle">これまでの記録</h2>
       <div class="timeline" id="timeline"></div>
     `;
+
+    renderLessonNav();
+    updateStudentView();
 
     const textEl = document.getElementById('text');
     textEl.addEventListener('input', ()=>{document.getElementById('cc').textContent = textEl.value.length;});
 
     document.getElementById('submitBtn').addEventListener('click', ()=>{
-      const lesson = document.getElementById('lesson').value.trim();
       const text = textEl.value.trim();
       const btn = document.getElementById('submitBtn');
       const msg = document.getElementById('submitMsg');
+      if (!currentSel.koji){ msg.className='msg err'; msg.textContent='授業(単元・章・校時)を選んでください。'; return; }
       if (!text){ msg.className='msg err'; msg.textContent='振り返りを入力してください。'; return; }
+      const lessonName = lessonFullName(currentSel);
       btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>送信中…';
-      gasPost({action:'submit', token:token, lesson:lesson, text:text}).then(res=>{
+      gasPost({action:'submit', token:token, lesson:lessonName, text:text}).then(res=>{
         btn.disabled = false; btn.textContent = '提出する';
         if (res.error){ msg.className='msg err'; msg.textContent = res.error; return; }
         msg.className='msg ok'; msg.textContent = '提出しました。AIの評価がつくまで少し待ってね。';
-        document.getElementById('lesson').value=''; textEl.value=''; document.getElementById('cc').textContent='0';
-        renderTimeline(data.entries = [{row:null,date:new Date().toISOString(),lesson:lesson,text:text,score:'',comment:''}].concat(data.entries));
+        textEl.value=''; document.getElementById('cc').textContent='0';
+        allEntries = [{row:null,date:new Date().toISOString(),lesson:lessonName,text:text,score:'',comment:''}].concat(allEntries);
+        updateStudentView();
       });
     });
-
-    renderTimeline(data.entries);
   }).catch(()=>{
     app.innerHTML = `<div class="card"><p class="msg err">通信に失敗しました。ネットワーク接続を確認してください。</p></div>`;
   });
+}
+
+function renderLessonNav(){
+  const el = document.getElementById('lessonNav');
+  if (!lessonList.length){
+    el.innerHTML = '<p class="empty">先生が授業構成を登録すると、ここに単元・章・校時のタブが表示されます。</p>';
+    return;
+  }
+  const tanis = [...new Set(lessonList.map(l=>l.tani))];
+  const shos = [...new Set(lessonList.filter(l=>l.tani===currentSel.tani).map(l=>l.sho))];
+  const kojis = lessonList.filter(l=>l.tani===currentSel.tani && l.sho===currentSel.sho);
+
+  el.innerHTML = `
+    <div class="tier"><div class="tier-label">単元</div><div class="lesson-tabs" id="taniTabs">
+      ${tanis.map(t=>`<button class="lesson-tab ${t===currentSel.tani?'active':''}" data-v="${esc(t)}">${esc(t)}</button>`).join('')}
+    </div></div>
+    ${shos.length ? `<div class="tier"><div class="tier-label">章</div><div class="lesson-tabs" id="shoTabs">
+      ${shos.map(s=>`<button class="lesson-tab ${s===currentSel.sho?'active':''}" data-v="${esc(s)}">${esc(s)}</button>`).join('')}
+    </div></div>` : ''}
+    ${kojis.length ? `<div class="tier"><div class="tier-label">校時</div><div class="lesson-tabs" id="kojiTabs">
+      ${kojis.map(l=>`<button class="lesson-tab ${l.koji===currentSel.koji?'active':''}" data-v="${esc(l.koji)}">${esc(l.koji)}</button>`).join('')}
+    </div></div>` : ''}
+  `;
+
+  const taniTabs = document.getElementById('taniTabs');
+  if (taniTabs) taniTabs.querySelectorAll('.lesson-tab').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      currentSel.tani = btn.dataset.v;
+      const firstSho = lessonList.find(l=>l.tani===currentSel.tani);
+      currentSel.sho = firstSho ? firstSho.sho : null;
+      const firstKoji = lessonList.find(l=>l.tani===currentSel.tani && l.sho===currentSel.sho);
+      currentSel.koji = firstKoji ? firstKoji.koji : null;
+      renderLessonNav(); updateStudentView();
+    });
+  });
+  const shoTabs = document.getElementById('shoTabs');
+  if (shoTabs) shoTabs.querySelectorAll('.lesson-tab').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      currentSel.sho = btn.dataset.v;
+      const firstKoji = lessonList.find(l=>l.tani===currentSel.tani && l.sho===currentSel.sho);
+      currentSel.koji = firstKoji ? firstKoji.koji : null;
+      renderLessonNav(); updateStudentView();
+    });
+  });
+  const kojiTabs = document.getElementById('kojiTabs');
+  if (kojiTabs) kojiTabs.querySelectorAll('.lesson-tab').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      currentSel.koji = btn.dataset.v;
+      renderLessonNav(); updateStudentView();
+    });
+  });
+}
+
+function updateStudentView(){
+  const name = lessonFullName(currentSel);
+  document.getElementById('formTitle').textContent = name ? name + ' の振り返りを書く' : '振り返りを書く';
+  document.getElementById('timelineTitle').textContent = name ? name + ' のこれまでの記録' : 'これまでの記録';
+  const filtered = name ? allEntries.filter(en => en.lesson === name) : allEntries;
+  renderTimeline(filtered);
 }
 
 function renderTimeline(entries){
@@ -276,7 +381,6 @@ function renderTimeline(entries){
     return `
       <div class="entry ${graded?'':'pending'}">
         <div class="entry-date">${fmtDate(en.date)}</div>
-        ${en.lesson ? `<div class="entry-lesson">${esc(en.lesson)}</div>` : ''}
         <div class="entry-text">${esc(en.text)}</div>
         ${graded
           ? `<div class="grade-box graded"><div class="score">評価: ${esc(en.score)}</div>${esc(en.comment)}</div>`
@@ -289,6 +393,7 @@ function renderTimeline(entries){
 function renderAdminGate(){
   const savedKey = localStorage.getItem('reflect_admin_pw') || '';
   const savedApiKey = localStorage.getItem('reflect_anthropic_key') || '';
+  const savedRubric = localStorage.getItem('reflect_rubric') || '';
   app.innerHTML = `
     <div class="topline"><h1>理科 振り返りノート — 先生用</h1></div>
     <div class="card">
@@ -300,29 +405,51 @@ function renderAdminGate(){
         <label for="apikey">Anthropic APIキー(この端末にのみ保存されます)</label>
         <input type="text" id="apikey" value="${esc(savedApiKey)}" placeholder="sk-ant-...">
       </div>
-      <button class="btn-main" id="goBtn">未評価の振り返りを取得</button>
+      <div class="field">
+        <label for="rubric">AIに伝える評価基準(任意・この端末にのみ保存されます)</label>
+        <textarea id="rubric" placeholder="例: 5点満点。具体的な数値や実験結果への言及があれば+1点。疑問点や次に調べたいことが書かれていれば+1点。">${esc(savedRubric)}</textarea>
+      </div>
+      <button class="btn-main" id="goBtn">入る</button>
       <div class="msg err" id="gateMsg"></div>
     </div>
   `;
   document.getElementById('goBtn').addEventListener('click', ()=>{
     const pw = document.getElementById('pw').value.trim();
     const apikey = document.getElementById('apikey').value.trim();
+    const rubric = document.getElementById('rubric').value.trim();
     if (!pw || !apikey){
       document.getElementById('gateMsg').textContent = '合言葉とAPIキーの両方を入力してください。';
       return;
     }
     localStorage.setItem('reflect_admin_pw', pw);
     localStorage.setItem('reflect_anthropic_key', apikey);
-    loadUngraded(pw, apikey);
+    localStorage.setItem('reflect_rubric', rubric);
+    renderAdminHub(pw, apikey, rubric);
   });
 }
 
-function loadUngraded(pw, apikey){
+function renderAdminHub(pw, apikey, rubric){
+  app.innerHTML = `
+    <div class="topline"><h1>理科 振り返りノート — 先生用</h1></div>
+    <div class="card row2">
+      <button class="btn-main" id="goUngraded">未評価を評価する</button>
+      <button class="btn-ghost" id="goList">評価の一覧を見る</button>
+      <button class="btn-ghost" id="goLessons">授業構成を設定する</button>
+    </div>
+    <footer class="note"><button class="link-btn" onclick="renderAdminGate()">合言葉・APIキー・評価基準を変更</button></footer>
+  `;
+  document.getElementById('goUngraded').addEventListener('click', ()=>loadUngraded(pw, apikey, rubric));
+  document.getElementById('goList').addEventListener('click', ()=>renderGradedList(pw));
+  document.getElementById('goLessons').addEventListener('click', ()=>renderLessonSettings(pw, apikey, rubric));
+}
+
+function loadUngraded(pw, apikey, rubric){
   app.innerHTML = `<p class="empty">読み込み中…</p>`;
   gasGet('action=admin_ungraded&key=' + encodeURIComponent(pw)).then(data=>{
     if (data.error){
       app.innerHTML = `<div class="card"><p class="msg err">合言葉が違うか、通信に失敗しました。</p></div>
-        <button class="btn-ghost" onclick="renderAdminGate()">戻る</button>`;
+        <button class="btn-ghost" id="backBtn">戻る</button>`;
+      document.getElementById('backBtn').addEventListener('click', ()=>renderAdminHub(pw, apikey, rubric));
       return;
     }
     const items = data.items || [];
@@ -330,11 +457,12 @@ function loadUngraded(pw, apikey){
       <div class="topline"><h1>未評価の振り返り</h1><span class="who">${items.length}件</span></div>
       ${items.length ? `<div class="card row2">
           <button class="btn-main" id="gradeAllBtn">すべてAIで評価する</button>
-          <button class="btn-ghost" onclick="renderAdminGate()">やり直す</button>
+          <button class="btn-ghost" id="backBtn">先生用トップに戻る</button>
         </div>` : `<div class="card"><p>未評価の振り返りはありません。</p>
-        <button class="btn-ghost" onclick="renderAdminGate()">戻る</button></div>`}
+        <button class="btn-ghost" id="backBtn">先生用トップに戻る</button></div>`}
       <div id="items"></div>
     `;
+    document.getElementById('backBtn').addEventListener('click', ()=>renderAdminHub(pw, apikey, rubric));
     const itemsEl = document.getElementById('items');
     itemsEl.innerHTML = items.map(it => `
       <div class="admin-item" id="item-${it.row}">
@@ -345,14 +473,14 @@ function loadUngraded(pw, apikey){
     `).join('');
 
     if (items.length){
-      document.getElementById('gradeAllBtn').addEventListener('click', ()=>gradeAll(items, pw, apikey));
+      document.getElementById('gradeAllBtn').addEventListener('click', ()=>gradeAll(items, pw, apikey, rubric));
     }
   }).catch(()=>{
     app.innerHTML = `<div class="card"><p class="msg err">通信に失敗しました。</p></div>`;
   });
 }
 
-async function gradeAll(items, pw, apikey){
+async function gradeAll(items, pw, apikey, rubric){
   const btn = document.getElementById('gradeAllBtn');
   btn.disabled = true;
   const results = [];
@@ -360,7 +488,7 @@ async function gradeAll(items, pw, apikey){
     const statusEl = document.getElementById('status-'+it.row);
     statusEl.textContent = '評価中…';
     try {
-      const grade = await gradeWithClaude(it, apikey);
+      const grade = await gradeWithClaude(it, apikey, rubric);
       statusEl.innerHTML = `<span class="badge">評価済 ${esc(grade.score)}</span>`;
       results.push({row: it.row, score: grade.score, comment: grade.comment});
     } catch (err){
@@ -373,11 +501,12 @@ async function gradeAll(items, pw, apikey){
   btn.textContent = '完了しました';
 }
 
-async function gradeWithClaude(item, apikey){
+async function gradeWithClaude(item, apikey, rubric){
   const prompt = `あなたは中学校理科の先生です。生徒が書いた授業の振り返りを読み、次の2点を出力してください。
-1. 5点満点の評価点(整数。理解の深さ・具体性・自分の言葉での説明を基準にする)
+1. 5点満点の評価点(整数)
 2. 生徒への短いコメント(2〜3文、日本語、励ましを含めた具体的なフィードバック)
 
+${rubric ? '評価基準(先生の指定):\n' + rubric + '\n' : '評価基準の指定はありません。理解の深さ・具体性・自分の言葉での説明を基準にしてください。\n'}
 単元: ${item.lesson || '(未記入)'}
 生徒の振り返り:
 """
@@ -409,6 +538,155 @@ ${item.text}
   if (!match) throw new Error('parse error');
   const parsed = JSON.parse(match[0]);
   return { score: parsed.score, comment: parsed.comment };
+}
+
+function renderGradedList(pw){
+  app.innerHTML = `<p class="empty">読み込み中…</p>`;
+  Promise.all([
+    gasGet('action=admin_all&key=' + encodeURIComponent(pw)),
+    gasGet('action=lessons')
+  ]).then(([data, lessonData])=>{
+    if (data.error){
+      app.innerHTML = `<div class="card"><p class="msg err">合言葉が違うか、通信に失敗しました。</p></div>
+        <button class="btn-ghost" id="backBtn">戻る</button>`;
+      document.getElementById('backBtn').addEventListener('click', ()=>renderAdminHub(pw, localStorage.getItem('reflect_anthropic_key')||'', localStorage.getItem('reflect_rubric')||''));
+      return;
+    }
+    const items = data.items || [];
+    const lessons = (lessonData && lessonData.lessons) || [];
+    app.innerHTML = `
+      <div class="topline"><h1>評価の一覧</h1><span class="who">${items.length}件</span></div>
+      <div class="card">
+        <label for="lessonFilter">授業でしぼりこむ</label>
+        <select id="lessonFilter">
+          <option value="">すべて</option>
+          ${lessons.map(l=>`<option value="${esc(lessonFullName(l))}">${esc(lessonFullName(l))}</option>`).join('')}
+        </select>
+      </div>
+      <div id="summary" style="margin-bottom:14px;font-size:.85rem;color:var(--ink-soft);"></div>
+      <div id="gradedItems"></div>
+      <footer class="note"><button class="link-btn" id="backBtn">先生用トップに戻る</button></footer>
+    `;
+    document.getElementById('backBtn').addEventListener('click', ()=>renderAdminHub(pw, localStorage.getItem('reflect_anthropic_key')||'', localStorage.getItem('reflect_rubric')||''));
+
+    function draw(){
+      const lesson = document.getElementById('lessonFilter').value;
+      const filtered = lesson ? items.filter(it=>it.lesson===lesson) : items;
+      const graded = filtered.filter(it=>it.score !== '' && it.score !== undefined && it.score !== null);
+      const summaryEl = document.getElementById('summary');
+      if (graded.length){
+        const avg = (graded.reduce((s,it)=>s+Number(it.score||0),0) / graded.length).toFixed(1);
+        summaryEl.textContent = `評価済み ${graded.length}件 / 未評価 ${filtered.length - graded.length}件 ・ 平均点 ${avg}`;
+      } else {
+        summaryEl.textContent = `評価済み 0件 / 未評価 ${filtered.length}件`;
+      }
+      document.getElementById('gradedItems').innerHTML = filtered.map(it=>{
+        const isGraded = it.score !== '' && it.score !== undefined && it.score !== null;
+        return `
+          <div class="admin-item">
+            <div class="meta"><span>${esc(it.name)} / ${fmtDate(it.date)}</span>
+              <span class="badge ${isGraded?'':'err'}">${isGraded ? '評価済 '+esc(it.score) : '未評価'}</span>
+            </div>
+            <div style="font-family:'Shippori Mincho',serif;font-weight:700;margin-bottom:4px;">${esc(it.lesson)}</div>
+            <div style="font-size:.9rem;margin-bottom:8px;">${esc(it.text)}</div>
+            ${isGraded ? `<div class="grade-box graded">${esc(it.comment)}</div>` : ''}
+          </div>`;
+      }).join('') || '<p class="empty">該当する記録がありません。</p>';
+    }
+    document.getElementById('lessonFilter').addEventListener('change', draw);
+    draw();
+  }).catch(()=>{
+    app.innerHTML = `<div class="card"><p class="msg err">通信に失敗しました。</p></div>`;
+  });
+}
+
+/* ---------------- 授業構成の設定ページ ---------------- */
+let editRows = [];
+
+function renderLessonSettings(pw, apikey, rubric){
+  app.innerHTML = `<p class="empty">読み込み中…</p>`;
+  gasGet('action=lessons').then(data=>{
+    editRows = (data.lessons || []).map(l => ({tani:l.tani, sho:l.sho, koji:l.koji}));
+    app.innerHTML = `
+      <div class="topline"><h1>授業構成の設定</h1></div>
+      <div class="card">
+        <p style="font-size:.85rem;color:var(--ink-soft);margin:0 0 12px;">単元・章・校時を入力して「追加」を押してください。同じ単元名・章名を使うとその下にまとまります。</p>
+        <div class="add-row">
+          <input type="text" id="newTani" placeholder="単元 (例: 単元1)">
+          <input type="text" id="newSho" placeholder="章 (例: 第1章)">
+          <input type="text" id="newKoji" placeholder="校時 (例: 第1校時)">
+        </div>
+        <button class="btn-main" id="addRowBtn">追加</button>
+      </div>
+      <div id="tree"></div>
+      <div class="card row2">
+        <button class="btn-main" id="saveBtn">保存する</button>
+        <button class="btn-ghost" id="backBtn">先生用トップに戻る(保存せず)</button>
+      </div>
+      <div class="msg" id="settingsMsg"></div>
+    `;
+    drawTree();
+    document.getElementById('addRowBtn').addEventListener('click', ()=>{
+      const tani = document.getElementById('newTani').value.trim();
+      const sho = document.getElementById('newSho').value.trim();
+      const koji = document.getElementById('newKoji').value.trim();
+      if (!tani || !koji){
+        document.getElementById('settingsMsg').className='msg err';
+        document.getElementById('settingsMsg').textContent='単元と校時は必須です(章は空でも可)。';
+        return;
+      }
+      editRows.push({tani:tani, sho:sho, koji:koji});
+      document.getElementById('newSho').value=''; document.getElementById('newKoji').value='';
+      document.getElementById('settingsMsg').textContent='';
+      drawTree();
+    });
+    document.getElementById('backBtn').addEventListener('click', ()=>renderAdminHub(pw, apikey, rubric));
+    document.getElementById('saveBtn').addEventListener('click', async ()=>{
+      const btn = document.getElementById('saveBtn');
+      btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>保存中…';
+      const res = await gasPost({action:'save_lessons', key:pw, tree:editRows});
+      btn.disabled = false; btn.textContent = '保存する';
+      const msg = document.getElementById('settingsMsg');
+      if (res.error){ msg.className='msg err'; msg.textContent = '保存に失敗しました。合言葉を確認してください。'; return; }
+      msg.className='msg ok'; msg.textContent = '保存しました。生徒ページに反映されます。';
+    });
+  }).catch(()=>{
+    app.innerHTML = `<div class="card"><p class="msg err">通信に失敗しました。</p></div>`;
+  });
+}
+
+function drawTree(){
+  const el = document.getElementById('tree');
+  if (!editRows.length){
+    el.innerHTML = '<p class="empty">まだ何も登録されていません。上のフォームから追加してください。</p>';
+    return;
+  }
+  const tanis = [...new Set(editRows.map(r=>r.tani))];
+  el.innerHTML = tanis.map(tani=>{
+    const rowsForTani = editRows.filter(r=>r.tani===tani);
+    const shos = [...new Set(rowsForTani.map(r=>r.sho))];
+    return `<div class="tani-group">
+      <div class="tani-title">${esc(tani)}</div>
+      ${shos.map(sho=>{
+        const rowsForSho = editRows.filter(r=>r.tani===tani && r.sho===sho);
+        return `<div class="sho-group">
+          ${sho ? `<div class="sho-title">${esc(sho)}</div>` : ''}
+          <div>
+            ${rowsForSho.map(r=>{
+              const idx = editRows.indexOf(r);
+              return `<span class="koji-chip">${esc(r.koji)}<button data-idx="${idx}">×</button></span>`;
+            }).join('')}
+          </div>
+        </div>`;
+      }).join('')}
+    </div>`;
+  }).join('');
+  el.querySelectorAll('.koji-chip button').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      editRows.splice(Number(btn.dataset.idx), 1);
+      drawTree();
+    });
+  });
 }
 </script>
 </body>
